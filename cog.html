@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualisation du COG</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.0.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+
+    <style>
+      html, body {
+          margin: 0;
+          padding: 0;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background-color: #000000;
+      }
+
+      #title {
+          font-family: Arial, sans-serif;
+          font-size: 24px;
+          font-weight: bold;
+          margin-bottom: 20px;
+          color: #333333;
+          text-align: center;
+      }
+
+      header {
+          background-color: #000000; /* Couleur rouge */
+          color: white; /* Texte blanc */
+          width: 1000%; /* Prend toute la largeur */
+          text-align: center; /* Texte centré */
+          padding: 10px 0; /* Espacement interne */
+          font-family: Arial, sans-serif;
+          font-size: 10px;
+          font-weight: bold;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Ajout d'une ombre */
+      }
+
+      #map {
+          width: 755px;
+          height: 643px;
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          border: 1px solid #ddd;
+      }
+
+      footer {
+          margin-top: 20px;
+          font-size: 14px;
+          color: #ffffff;
+          background-color: #000000;
+      }
+
+      /* Style pour le marqueur de COG */
+      .cog-marker {
+          background-color: #007bff;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: 2px solid white;
+          cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Visualisation de la commune d'AMIZMIZ</h1>
+    </header>
+    <div id="map"></div>
+    <footer>
+      &copy; 2024 projet web mapping - partie2
+    </footer>
+    
+    <script src="https://unpkg.com/leaflet@1.0.3/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/proj4"></script>
+    <script src="https://unpkg.com/georaster"></script>
+    <script src="https://unpkg.com/georaster-layer-for-leaflet"></script>
+    
+    <script>
+      // Initialiser la carte Leaflet centrée sur le Maroc
+      var map = L.map('map').setView([31.7917, -7.0926], 6); // Coordonnées du Maroc
+
+      // Ajouter la basemap OpenStreetMap
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 18
+      }).addTo(map);
+
+      // Charger le fichier GeoTIFF si une URL est fournie
+      const url_to_geotiff_file = new URLSearchParams(location.search).get("url");
+      let cogLayer;
+
+      if (!url_to_geotiff_file) {
+        const parser = new URL(window.location);
+        parser.searchParams.set("url", "https://cog-2024.s3.eu-north-1.amazonaws.com/cog/carte_cog.tif");
+        window.location = parser.href;
+      } else {
+        parseGeoraster(url_to_geotiff_file).then(georaster => {
+          cogLayer = new GeoRasterLayer({
+            attribution: "web mapping",
+            georaster,
+            resolution: 256
+          });
+          cogLayer.addTo(map);
+          map.fitBounds(cogLayer.getBounds());
+        });
+      }
+
+      // Créer un marqueur personnalisé pour activer/désactiver la couche COG
+      var cogMarker = L.divIcon({
+        className: 'cog-marker',
+        html: '', // Icône vide, car le style est déjà défini dans CSS
+      });
+
+      // Ajouter le marqueur à la carte en haut à droite
+      var marker = L.marker([31.7917, -7.0926], {icon: cogMarker, zIndexOffset: 1000}).addTo(map);
+
+      // Placer le marqueur en haut à droite
+      marker.setLatLng([31.7917, -7.0926]);  // Positionner sur la carte
+
+      // Ajouter l'événement pour activer/désactiver la couche COG lorsque le marqueur est cliqué
+      marker.on('click', function () {
+        if (map.hasLayer(cogLayer)) {
+          map.removeLayer(cogLayer);
+        } else {
+          map.addLayer(cogLayer);
+        }
+      });
+
+      // Ajouter les outils de dessin et de mesure
+      var drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      var drawControl = new L.Control.Draw({
+        position: 'topleft',
+        draw: {
+          polygon: {
+            allowIntersection: false,
+            showArea: true,
+            metric: true
+          },
+          polyline: {
+            metric: true
+          },
+          circle: false,  // Désactiver le cercle
+          marker: false,  // Désactiver le marqueur
+          rectangle: {
+            showArea: true,
+            metric: true
+          }
+        },
+        edit: {
+          featureGroup: drawnItems
+        }
+      });
+      map.addControl(drawControl);
+
+      // Afficher les résultats des mesures
+      map.on(L.Draw.Event.CREATED, function (event) {
+        var layer = event.layer;
+        drawnItems.addLayer(layer);
+
+        if (event.layerType === 'polygon' || event.layerType === 'rectangle') {
+          var area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
+          alert("Surface mesurée: " + (area / 10000).toFixed(2) + " hectares");
+        } else if (event.layerType === 'polyline') {
+          var length = L.GeometryUtil.length(layer.getLatLngs());
+          alert("Longueur mesurée: " + (length / 1000).toFixed(2) + " km");
+        }
+      });
+    </script>
+  </body>
+</html>
